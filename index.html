@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Beat Battle</title>
+
+<style>
+*{box-sizing:border-box}
+html,body{
+ margin:0;
+ height:100%;
+ overflow:hidden;
+ background:#111;
+ color:white;
+ font-family:Arial,sans-serif;
+}
+#game{
+ height:100%;
+ display:flex;
+ flex-direction:column;
+ align-items:center;
+}
+h1{
+ margin:20px 0 8px;
+ font-size:36px;
+}
+#score{
+ font-size:19px;
+ margin-bottom:8px;
+}
+#screen{
+ position:relative;
+ width:100%;
+ max-width:600px;
+ height:55%;
+ background:#202030;
+ overflow:hidden;
+ border:3px solid white;
+}
+.lane{
+ position:absolute;
+ bottom:15px;
+ width:22%;
+ height:60px;
+ border:4px solid white;
+ border-radius:15px;
+ text-align:center;
+ font-size:42px;
+}
+.n{
+ position:absolute;
+ font-size:45px;
+ font-weight:bold;
+}
+#start{
+ width:90%;
+ max-width:400px;
+ height:65px;
+ margin:8px;
+ font-size:24px;
+ border:3px solid white;
+ border-radius:18px;
+ background:#333;
+ color:white;
+}
+#sound{
+ font-size:16px;
+ margin-bottom:5px;
+}
+#buttons{
+ display:flex;
+ width:100%;
+ max-width:600px;
+ gap:6px;
+ padding:8px;
+}
+#buttons button{
+ flex:1;
+ height:95px;
+ font-size:45px;
+ border:3px solid white;
+ border-radius:18px;
+ background:#333;
+ color:white;
+}
+#buttons button:active{
+ background:white;
+ color:black;
+}
+</style>
+</head>
+
+<body>
+
+<div id="game">
+
+<h1>BEAT BATTLE 🎵</h1>
+
+<div id="score">
+SCORE 0 | COMBO 0 | MISS 0
+</div>
+
+<div id="screen">
+
+<div class="lane" style="left:2%">←</div>
+<div class="lane" style="left:26%">↓</div>
+<div class="lane" style="left:50%">↑</div>
+<div class="lane" style="left:74%">→</div>
+
+</div>
+
+<button id="start">START GAME 🎵</button>
+
+<div id="sound">Music OFF</div>
+
+<div id="buttons">
+<button>←</button>
+<button>↓</button>
+<button>↑</button>
+<button>→</button>
+</div>
+
+</div>
+
+<script>
+
+const screen=document.getElementById("screen");
+const score=document.getElementById("score");
+const startButton=document.getElementById("start");
+const soundText=document.getElementById("sound");
+const buttons=[...document.querySelectorAll("#buttons button")];
+
+const arrows=["←","↓","↑","→"];
+
+let notes=[];
+let playing=false;
+let points=0;
+let combo=0;
+let miss=0;
+let spawnTimer;
+
+let audioCtx;
+let master;
+let musicTimer;
+let musicStep=0;
+
+/* AUDIO */
+
+function setupAudio(){
+
+ if(audioCtx)return;
+
+ audioCtx=new(
+  window.AudioContext ||
+  window.webkitAudioContext
+ )();
+
+ master=audioCtx.createGain();
+
+ master.gain.value=.12;
+
+ master.connect(audioCtx.destination);
+}
+
+/* PLAY A NOTE */
+
+function playNote(freq,length=.18,type="square",volume=.08){
+
+ if(!audioCtx)return;
+
+ const osc=audioCtx.createOscillator();
+ const gain=audioCtx.createGain();
+
+ osc.type=type;
+ osc.frequency.value=freq;
+
+ gain.gain.setValueAtTime(
+  volume,
+  audioCtx.currentTime
+ );
+
+ gain.gain.exponentialRampToValueAtTime(
+  .001,
+  audioCtx.currentTime+length
+ );
+
+ osc.connect(gain);
+ gain.connect(master);
+
+ osc.start();
+
+ osc.stop(
+  audioCtx.currentTime+length
+ );
+}
+
+/* BACKGROUND MUSIC */
+
+const melody=[
+  261.63,261.63,329.63,392,
+  392,329.63,261.63,196,
+  261.63,329.63,392,523.25,
+  392,329.63,261.63,196
+];
+
+function music(){
+
+ if(!playing)return;
+
+ let note=melody[musicStep%melody.length];
+
+ playNote(note,.22,"square",.045);
+
+ /* bass */
+
+ if(musicStep%4===0){
+
+  let bass=[130.81,164.81,196,130.81];
+
+  playNote(
+   bass[(musicStep/4)%bass.length],
+   .35,
+   "triangle",
+   .07
+  );
+ }
+
+ /* hi-hat */
+
+ if(musicStep%2===0){
+
+  playNote(
+   900,
+   .035,
+   "square",
+   .018
+  );
+ }
+
+ musicStep++;
+}
+
+/* HIT SOUND */
+
+function hitSound(i){
+
+ const sounds=[
+  261.63,
+  329.63,
+  392,
+  523.25
+ ];
+
+ playNote(
+  sounds[i],
+  .12,
+  "square",
+  .12
+ );
+}
+
+/* MISS SOUND */
+
+function missSound(){
+
+ playNote(
+  100,
+  .2,
+  "sawtooth",
+  .08
+ );
+}
+
+/* START */
+
+async function startGame(){
+
+ setupAudio();
+
+ if(audioCtx.state==="suspended"){
+  await audioCtx.resume();
+ }
+
+ playing=true;
+
+ points=0;
+ combo=0;
+ miss=0;
+ notes=[];
+ musicStep=0;
+
+ startButton.style.display="none";
+
+ soundText.textContent="🎵 MUSIC ON";
+
+ clearInterval(musicTimer);
+
+ musicTimer=setInterval(
+  music,
+  260
+ );
+
+ clearInterval(spawnTimer);
+
+ spawnTimer=setInterval(
+  spawn,
+  650
+ );
+
+ loop();
+}
+
+/* CREATE ARROW */
+
+function spawn(){
+
+ if(!playing)return;
+
+ const i=Math.floor(
+  Math.random()*4
+ );
+
+ const n=document.createElement("div");
+
+ n.className="n";
+
+ n.textContent=arrows[i];
+
+ n.style.left=(5+i*24)+"%";
+
+ n.style.top="-50px";
+
+ screen.appendChild(n);
+
+ notes.push({
+  el:n,
+  i:i,
+  hit:false
+ });
+}
+
+/* HIT ARROW */
+
+function hit(i){
+
+ if(!playing)return;
+
+ let best=null;
+ let distance=999;
+
+ notes.forEach(n=>{
+
+  if(!n.hit && n.i===i){
+
+   const r=n.el.getBoundingClientRect();
+   const s=screen.getBoundingClientRect();
+
+   const d=Math.abs(
+    (r.top-s.top)-s.height*.82
+   );
+
+   if(d<distance){
+
+    distance=d;
+    best=n;
+   }
+  }
+ });
+
+ if(best && distance<100){
+
+  best.hit=true;
+  best.el.remove();
+
+  points+=100+(combo*10);
+
+  combo++;
+
+  hitSound(i);
+
+ }else{
+
+  combo=0;
+  miss++;
+
+  missSound();
+ }
+
+ updateScore();
+}
+
+/* SCORE */
+
+function updateScore(){
+
+ score.textContent=
+ "SCORE "+points+
+ " | COMBO "+combo+
+ " | MISS "+miss;
+}
+
+/* GAME LOOP */
+
+function loop(){
+
+ if(!playing)return;
+
+ notes.forEach(n=>{
+
+  if(!n.hit){
+
+   let y=
+    parseFloat(n.el.style.top)+7;
+
+   n.el.style.top=y+"px";
+
+   if(y>screen.clientHeight){
+
+    n.hit=true;
+
+    n.el.remove();
+
+    combo=0;
+    miss++;
+
+    missSound();
+   }
+  }
+ });
+
+ updateScore();
+
+ requestAnimationFrame(loop);
+}
+
+/* BUTTONS */
+
+buttons.forEach((button,i)=>{
+
+ button.addEventListener(
+  "pointerdown",
+  function(e){
+
+   e.preventDefault();
+
+   hit(i);
+  }
+ );
+});
+
+/* START BUTTON */
+
+startButton.addEventListener(
+ "pointerdown",
+ function(e){
+
+  e.preventDefault();
+
+  startGame();
+ }
+);
+
+</script>
+
+</body>
+</html>
